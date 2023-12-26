@@ -1,7 +1,17 @@
-#[cfg(any(target_os = "android", target_os = "linux"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
 mod linux;
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "netbsd"
+))]
 pub use linux::*;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]

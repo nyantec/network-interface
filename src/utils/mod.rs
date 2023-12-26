@@ -3,6 +3,8 @@ pub mod hex;
 #[cfg(any(
     target_os = "android",
     target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
     target_os = "ios",
     target_os = "macos"
 ))]
@@ -11,6 +13,8 @@ mod unix;
 #[cfg(any(
     target_os = "android",
     target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
     target_os = "ios",
     target_os = "macos"
 ))]

@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::slice::from_raw_parts;
 
-use libc::{
-    sockaddr_in, sockaddr_in6, strlen, AF_INET, AF_INET6, if_nametoindex, sockaddr_ll, AF_PACKET,
-};
+use libc::{sockaddr_in, sockaddr_in6, strlen, AF_INET, AF_INET6, if_nametoindex};
 
 use crate::target::getifaddrs;
 use crate::{Error, NetworkInterface, NetworkInterfaceConfig, Result};
@@ -24,10 +22,24 @@ impl NetworkInterfaceConfig for NetworkInterface {
             };
 
             let mut network_interface = match netifa_family {
-                AF_PACKET => {
+                #[cfg(target_os = "linux")]
+                libc::AF_PACKET => {
                     let name = make_netifa_name(&netifa)?;
                     let mac = make_mac_addrs(&netifa);
                     let index = netifa_index(&netifa);
+                    NetworkInterface {
+                        name,
+                        addr: Vec::new(),
+                        mac_addr: Some(mac),
+                        index,
+                    }
+                }
+                #[cfg(any(target_os = "netbsd", target_os = "freebsd"))]
+                libc::AF_LINK => {
+                    let name = make_netifa_name(&netifa)?;
+                    let mac = make_mac_addrs(&netifa);
+                    let index = netifa_index(&netifa);
+
                     NetworkInterface {
                         name,
                         addr: Vec::new(),
@@ -87,7 +99,10 @@ fn make_netifa_name(netifa: &libc::ifaddrs) -> Result<String> {
 ///
 /// https://man7.org/linux/man-pages/man3/getifaddrs.3.html
 fn make_ipv4_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv4Addr>> {
+    #[cfg(target_os = "linux")]
     let ifa_dstaddr = netifa.ifa_ifu;
+    #[cfg(not(target_os = "linux"))]
+    let ifa_dstaddr = netifa.ifa_dstaddr;
 
     if ifa_dstaddr.is_null() {
         return Ok(None);
@@ -107,7 +122,10 @@ fn make_ipv4_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv4Addr>> 
 ///
 /// https://man7.org/linux/man-pages/man3/getifaddrs.3.html
 fn make_ipv6_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv6Addr>> {
+    #[cfg(target_os = "linux")]
     let ifa_dstaddr = netifa.ifa_ifu;
+    #[cfg(not(target_os = "linux"))]
+    let ifa_dstaddr = netifa.ifa_dstaddr;
 
     if ifa_dstaddr.is_null() {
         return Ok(None);
@@ -120,13 +138,33 @@ fn make_ipv6_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv6Addr>> 
     Ok(Some(addr))
 }
 
+#[cfg(target_os = "linux")]
 fn make_mac_addrs(netifa: &libc::ifaddrs) -> String {
     let netifa_addr = netifa.ifa_addr;
-    let socket_addr = netifa_addr as *mut sockaddr_ll;
+    let socket_addr = netifa_addr as *mut libc::sockaddr_ll;
     let mac_array = unsafe { (*socket_addr).sll_addr };
     let addr_len = unsafe { (*socket_addr).sll_halen };
     let real_addr_len = std::cmp::min(addr_len as usize, mac_array.len());
     let mac_slice = unsafe { std::slice::from_raw_parts(mac_array.as_ptr(), real_addr_len) };
+
+    mac_slice
+        .iter()
+        .map(|x| format!("{:02x}", x))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn make_mac_addrs(netifa: &libc::ifaddrs) -> String {
+    let netifa_addr = netifa.ifa_addr;
+    let socket_addr = netifa_addr as *mut libc::sockaddr_dl;
+    let mac_array = unsafe { (*socket_addr).sdl_data };
+    let addr_len = unsafe { (*socket_addr).sdl_alen } as usize;
+    let name_len = unsafe { (*socket_addr).sdl_nlen } as usize;
+    //let sel_len = unsafe { (*socket_addr).sdl_slen } as usize;
+    //let real_addr_len = std::cmp::min(addr_len as usize, mac_array.len());
+    let data_slice = unsafe { std::slice::from_raw_parts(mac_array.as_ptr(), name_len + addr_len) };
+    let mac_slice = &data_slice[name_len..];
 
     mac_slice
         .iter()
